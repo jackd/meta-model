@@ -11,13 +11,13 @@ with open(os.path.join(os.path.dirname(__file__), "requirements.txt")) as fp:
     install_requires = fp.read().split("\n")
 
 setup(
-    name="python_pkg",  # TODO
-    description="python package template",  # TODO
-    url="https://github.com/jackd/python-pkg",  # TODO
+    name="meta-model",
+    description="Package for incrementally building multiple connected tf.keras models",
+    url="https://github.com/jackd/meta-model",
     author="Dominic Jack",
     author_email="thedomjack@gmail.com",
     license="Apache 2.0",
-    packages=["python_pkg"],  # TODO
+    packages=["meta_model"],
     install_requires=install_requires,
     zip_safe=True,
     python_requires=">=3.6",
