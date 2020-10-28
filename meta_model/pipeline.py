@@ -60,7 +60,9 @@ class PipelinedModelBuilder:
     def batch(self, x: TensorLike, name: Optional[str] = None) -> TensorLike:
         """Connect a tensor in the pre_batch graph to the post_batch graph."""
         self._pre_batch_outputs.append(x)
-        out = utils.placeholder(self._batcher.batched_spec(utils.type_spec(x)))
+        out = utils.placeholder(
+            self._batcher.batched_spec(utils.type_spec(x)), name=name
+        )
         self._post_batch_inputs.append(out)
         return out
 
