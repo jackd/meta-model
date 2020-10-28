@@ -113,14 +113,14 @@ def model_fn(inputs, outputs) -> Callable:
     model = tf.keras.Model(tf.nest.flatten(inputs), tf.nest.flatten(outputs))
 
     @tf.function
-    def fn(*args, validate: bool = False):
+    def fn(*args, training: Optional[bool] = None, validate: bool = True):
         if isinstance(inputs, dict):
             assert len(args) == 1
             (args,) = args
         tf.nest.assert_same_structure(inputs, args)
         if validate:
             tf.nest.map_structure(assert_compatible, inputs, args)
-        flat_out = model(tf.nest.flatten(args))
+        flat_out = model(tf.nest.flatten(args), training=training)
 
         if isinstance(flat_out, (tf.Tensor, tf.RaggedTensor, tf.SparseTensor)):
             flat_out = (flat_out,)
