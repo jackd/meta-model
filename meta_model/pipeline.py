@@ -1,17 +1,58 @@
-from typing import Callable, NamedTuple, Optional
+from typing import Any, Callable, Dict, NamedTuple, Optional
 
 import tensorflow as tf
 
 from meta_model import utils
-from meta_model.batchers import Batcher
-from meta_model.types import TensorLike
+from meta_model.types import TensorLike, TensorLikeStruct, TypeSpecStruct
+
+Transform = Callable[[tf.data.Dataset], tf.data.Dataset]
 
 
-class Pipeline(NamedTuple):
-    pre_cache_map: Callable
-    pre_batch_map: Callable
-    post_batch_map: Callable
-    batcher: Batcher
+def _get_model(identifier) -> tf.keras.Model:
+    if isinstance(identifier, tf.keras.Model):
+        return identifier
+    model = tf.keras.utils.deserialize_keras_object(
+        identifier,
+        module_objects=dict(Functional=tf.keras.Model, Sequential=tf.keras.Sequential),
+    )
+    if not isinstance(model, tf.keras.Model):
+        raise ValueError(f"Invalid model: {model}")
+    return model
+
+
+@utils.register_serializable
+class Pipeline:
+    def __init__(
+        self,
+        pre_cache_model: tf.keras.Model,
+        pre_batch_model: tf.keras.Model,
+        post_batch_model: tf.keras.Model,
+    ):
+        self.pre_cache_model = _get_model(pre_cache_model)
+        self.pre_batch_model = _get_model(pre_batch_model)
+        self.post_batch_model = _get_model(post_batch_model)
+
+    def pre_cache_map_func(self, training: bool = False) -> utils.ModelMap:
+        return utils.ModelMap(self.pre_cache_model, training=training)
+
+    def pre_batch_map_func(self, training: bool = False) -> utils.ModelMap:
+        return utils.ModelMap(self.pre_batch_model, training=training)
+
+    def post_batch_map_func(self, training: bool = False) -> utils.ModelMap:
+        return utils.ModelMap(self.post_batch_model, training=training)
+
+    def get_config(self) -> Dict[str, Any]:
+        return dict(
+            pre_cache_model=tf.keras.utils.serialize_keras_object(self.pre_cache_model),
+            pre_batch_model=tf.keras.utils.serialize_keras_object(self.pre_batch_model),
+            post_batch_model=tf.keras.utils.serialize_keras_object(
+                self.post_batch_model
+            ),
+        )
+
+    @classmethod
+    def from_config(cls, config) -> "Pipeline":
+        return cls(**config)
 
 
 class PipelinedModel(NamedTuple):
@@ -20,7 +61,7 @@ class PipelinedModel(NamedTuple):
 
 
 class PipelinedModelBuilder:
-    def __init__(self, spec, batcher: Batcher):
+    def __init__(self, spec: TypeSpecStruct, batcher: Transform):
         self._pre_cache_inputs = tf.nest.map_structure(utils.placeholder, spec)
         self._batcher = batcher
         self._pre_cache_outputs = []
@@ -31,7 +72,7 @@ class PipelinedModelBuilder:
         self._model_inputs = []
 
     @property
-    def pre_cache_inputs(self):
+    def pre_cache_inputs(self) -> TensorLikeStruct:
         return self._pre_cache_inputs
 
     _stack = []
@@ -61,7 +102,7 @@ class PipelinedModelBuilder:
         """Connect a tensor in the pre_batch graph to the post_batch graph."""
         self._pre_batch_outputs.append(x)
         out = utils.placeholder(
-            self._batcher.batched_spec(utils.type_spec(x)), name=name
+            utils.transformed_spec(self._batcher, utils.type_spec(x)), name=name
         )
         self._post_batch_inputs.append(out)
         return out
@@ -73,10 +114,10 @@ class PipelinedModelBuilder:
         self._model_inputs.append(out)
         return out
 
-    def build_pre_cache_map(self, cached_outputs=None):
+    def build_pre_cache_model(self, cached_outputs=None) -> tf.keras.Model:
         if cached_outputs is None:
             cached_outputs = self._pre_cache_outputs
-        return utils.model_fn(self._pre_cache_inputs, cached_outputs)
+        return tf.keras.Model(self._pre_cache_inputs, cached_outputs)
 
     def build_pipeline(
         self, post_batch_outputs, batched_labels, batched_weights=None
@@ -85,12 +126,16 @@ class PipelinedModelBuilder:
             post_batch_outputs, batched_labels, batched_weights
         )
 
-        pre_cache_map = self.build_pre_cache_map()
-        pre_batch_map = utils.model_fn(
+        pre_cache_model = self.build_pre_cache_model()
+        pre_batch_model = tf.keras.Model(
             tuple(self._pre_batch_inputs), self._pre_batch_outputs
         )
-        post_batch_map = utils.model_fn(tuple(self._post_batch_inputs), batched_outputs)
-        return Pipeline(pre_cache_map, pre_batch_map, post_batch_map, self._batcher)
+
+        post_batch_model = tf.keras.Model(
+            tuple(self._post_batch_inputs), batched_outputs
+        )
+
+        return Pipeline(pre_cache_model, pre_batch_model, post_batch_model)
 
     def build(
         self, model_outputs, batched_labels, batched_weights=None,
@@ -125,7 +170,7 @@ def model_input(x: TensorLike, name=None) -> TensorLike:
     return get_default().model_input(x, name=name)
 
 
-def build_pipelined_model(build_fn, element_spec, batcher: Batcher) -> PipelinedModel:
+def build_pipelined_model(build_fn, element_spec, batcher: Transform) -> PipelinedModel:
     with PipelinedModelBuilder(element_spec, batcher=batcher) as builder:
         inp = builder.pre_cache_inputs
         if isinstance(inp, (list, tuple)):

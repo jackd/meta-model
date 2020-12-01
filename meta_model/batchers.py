@@ -1,5 +1,4 @@
 import abc
-from typing import Optional
 
 import tensorflow as tf
 
@@ -25,27 +24,11 @@ class Batcher(abc.ABC):
     def __call__(self, dataset: tf.data.Dataset) -> tf.data.Dataset:
         raise NotImplementedError("Abstract method")
 
-    def epoch_length(self, example_epoch_length: Optional[int]) -> Optional[int]:
-        if example_epoch_length is None:
-            return None
-        epoch_length = example_epoch_length // self._batch_size
-        if self._drop_remainder or example_epoch_length % self._batch_size == 0:
-            return epoch_length
-        return epoch_length + 1
-
 
 @utils.register_serializable
 class RectBatcher(Batcher):
     def __call__(self, dataset: tf.data.Dataset) -> tf.data.Dataset:
         return dataset.batch(self._batch_size, self._drop_remainder)
-
-    def batched_spec(self, spec):
-        return utils.batched_spec(
-            spec,
-            batch_size=self._batch_size,
-            drop_remainder=self._drop_remainder,
-            ragged=False,
-        )
 
 
 @utils.register_serializable
@@ -55,14 +38,6 @@ class RaggedBatcher(Batcher):
             tf.data.experimental.dense_to_ragged_batch(
                 self._batch_size, self._drop_remainder
             )
-        )
-
-    def batched_spec(self, spec):
-        return utils.batched_spec(
-            spec,
-            batch_size=self._batch_size,
-            drop_remainder=self._drop_remainder,
-            ragged=True,
         )
 
 
@@ -78,7 +53,7 @@ class PaddedRaggedBatcher(RaggedBatcher):
     def __call__(self, dataset: tf.data.Dataset) -> tf.data.Dataset:
         specs = dataset.element_spec
 
-        def pre_batch_map(*args):
+        def pre_batch_map_func(*args):
             if len(args) == 1:
                 (args,) = args
             sizes = tf.nest.map_structure(
@@ -91,7 +66,7 @@ class PaddedRaggedBatcher(RaggedBatcher):
             )
             return args, sizes
 
-        def post_batch_map(args, sizes):
+        def post_batch_map_func(args, sizes):
             return tf.nest.map_structure(
                 lambda arg, size, spec: tf.RaggedTensor.from_tensor(arg, size)
                 if spec.shape[0] is None and isinstance(spec, tf.TensorSpec)
@@ -102,9 +77,9 @@ class PaddedRaggedBatcher(RaggedBatcher):
             )
 
         return (
-            dataset.map(pre_batch_map)
+            dataset.map(pre_batch_map_func)
             .padded_batch(self._batch_size, drop_remainder=self._drop_remainder)
-            .map(post_batch_map)
+            .map(post_batch_map_func)
         )
 
 
@@ -137,21 +112,30 @@ class RaggedBatcherV2(RaggedBatcher):
                 rt.flat_values, rt.nested_row_splits[1:], validate=validate
             )
 
-        def pre_batch_map(*args):
+        def pre_batch_map_func(*args):
             args = tf.nest.flatten(args)
             args = [
                 pre_batch_ragged(x) if app else x for x, app in zip(args, applicable)
             ]
             return args
 
-        def post_batch_map(*args):
+        def post_batch_map_func(*args):
             args = [
                 post_batch_ragged(x) if app else x for x, app in zip(args, applicable)
             ]
             return tf.nest.pack_sequence_as(spec, args)
 
         return (
-            dataset.map(pre_batch_map)
+            dataset.map(pre_batch_map_func)
             .batch(self._batch_size, drop_remainder=self._drop_remainder)
-            .map(post_batch_map)
+            .map(post_batch_map_func)
         )
+
+
+def get(identifier):
+    if isinstance(identifier, Batcher):
+        return identifier
+    out = tf.keras.utils.deserialize_keras_object(identifier)
+    if not isinstance(out, Batcher):
+        raise ValueError(f"Unknown batcher: {out}")
+    return out

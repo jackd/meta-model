@@ -9,7 +9,7 @@ class BatchersTest(tf.test.TestCase, parameterized.TestCase):
     @parameterized.parameters(
         batchers.RaggedBatcher, batchers.PaddedRaggedBatcher, batchers.RaggedBatcherV2
     )
-    def test_padded_ragged(self, batcher_cls):
+    def test_ragged_batchers(self, batcher_cls):
         batcher = batcher_cls(batch_size=4)
         ds = tf.data.Dataset.range(8).map(tf.range)
         ds = batcher(ds)

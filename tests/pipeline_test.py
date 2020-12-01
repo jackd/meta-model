@@ -42,15 +42,14 @@ class MultiBuilderTest(tf.test.TestCase):
         labels = tf.random.uniform(shape=(100,), maxval=10, dtype=tf.int64)
         dataset = tf.data.Dataset.from_tensor_slices(((x, y), labels))
 
+        batcher = batchers.RectBatcher(batch_size=batch_size)
         pipeline, model = pl.build_pipelined_model(
-            build_fn,
-            dataset.element_spec,
-            batcher=batchers.RectBatcher(batch_size=batch_size),
+            build_fn, dataset.element_spec, batcher=batcher,
         )
-        processed = dataset.map(pipeline.pre_cache_map)
-        processed = processed.map(pipeline.pre_batch_map)
-        processed = pipeline.batcher(processed)
-        processed = processed.map(pipeline.post_batch_map)
+        processed = dataset.map(pipeline.pre_cache_map_func())
+        processed = processed.map(pipeline.pre_batch_map_func())
+        processed = processed.apply(batcher)
+        processed = processed.map(pipeline.post_batch_map_func())
         actual_z = None
         actual_labels = None
         for actual_z, actual_labels in processed.take(1):
@@ -61,7 +60,7 @@ class MultiBuilderTest(tf.test.TestCase):
         processed = (
             dataset.map(pre_cache_map)
             .map(pre_batch_map)
-            .batch(batch_size)
+            .apply(batcher)
             .map(post_batch_map)
         )
         expected_z = None
@@ -91,13 +90,14 @@ class MultiBuilderTest(tf.test.TestCase):
             x = tf.keras.layers.Lambda(lambda x: x + 1)(x)
             return pl.model_input(x), (), ()
 
+        batcher = batchers.RaggedBatcher(batch_size)
         pipeline, model = pl.build_pipelined_model(
-            build_fn, dataset.element_spec, batcher=batchers.RaggedBatcher(batch_size)
+            build_fn, dataset.element_spec, batcher=batcher
         )
-        dataset = dataset.map(pipeline.pre_cache_map)
-        dataset = dataset.map(pipeline.pre_batch_map)
-        dataset = pipeline.batcher(dataset)
-        dataset = dataset.map(pipeline.post_batch_map)
+        dataset = dataset.map(pipeline.pre_cache_map_func())
+        dataset = dataset.map(pipeline.pre_batch_map_func())
+        dataset = batcher(dataset)
+        dataset = dataset.map(pipeline.post_batch_map_func())
 
         expected_flat = [1], [1, 2, 1, 2, 3], [1, 2, 3, 4, 1, 2, 3, 4, 5]
         for ((actual,), _, __), expected in zip(dataset, expected_flat):
