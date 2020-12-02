@@ -70,7 +70,8 @@ def placeholder_like(x: TensorLike, name: Optional[str] = None) -> TensorLike:
 
 
 def transformed_spec(
-    transform: Callable[[tf.data.Dataset], tf.data.Dataset], spec: TypeSpecStruct,
+    transform: Callable[[tf.data.Dataset], tf.data.Dataset],
+    spec: TypeSpecStruct,
 ) -> TypeSpecStruct:
     """
     Get the spec resulting from applying `transform` to a dataset with spec `spec`.

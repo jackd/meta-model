@@ -14,7 +14,9 @@ def assert_specs_equal(actual, expected):
 
 class UtilsTest(tf.test.TestCase, parameterized.TestCase):
     @parameterized.parameters(
-        ((None, 3), tf.int32), ((2,), tf.float64), ((2, None), tf.float32),
+        ((None, 3), tf.int32),
+        ((2,), tf.float64),
+        ((2, None), tf.float32),
     )
     def test_tensor_placeholder(self, shape, dtype):
         spec = tf.TensorSpec(shape=shape, dtype=dtype)

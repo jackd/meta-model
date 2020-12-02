@@ -44,7 +44,9 @@ class MultiBuilderTest(tf.test.TestCase):
 
         batcher = batchers.RectBatcher(batch_size=batch_size)
         pipeline, model = pl.build_pipelined_model(
-            build_fn, dataset.element_spec, batcher=batcher,
+            build_fn,
+            dataset.element_spec,
+            batcher=batcher,
         )
         processed = dataset.map(pipeline.pre_cache_map_func())
         processed = processed.map(pipeline.pre_batch_map_func())

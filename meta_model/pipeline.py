@@ -138,7 +138,10 @@ class PipelinedModelBuilder:
         return Pipeline(pre_cache_model, pre_batch_model, post_batch_model)
 
     def build(
-        self, model_outputs, batched_labels, batched_weights=None,
+        self,
+        model_outputs,
+        batched_labels,
+        batched_weights=None,
     ) -> PipelinedModel:
         pipeline = self.build_pipeline(
             tuple(self._post_batch_outputs), batched_labels, batched_weights
